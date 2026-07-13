@@ -1,0 +1,13 @@
+# Waveform Computing vs Quantum Computing
+# DeepChat App — ignore application binaries and runtime
+*.exe
+*.dll
+*.pak
+*.bin
+*.dat
+*.log
+*.json
+locales/
+resources/
+gh_ci_errors.txt
+gh_ci_log.txt
