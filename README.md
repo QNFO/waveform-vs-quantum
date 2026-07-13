@@ -2,7 +2,7 @@
 
 **A Complexity-Theoretic Investigation of the Classical/Quantum Computational Boundary**
 
-**DOI:** Pending (Zenodo deposition in progress)
+**DOI:** [10.5281/zenodo.21343606](https://doi.org/10.5281/zenodo.21343606)
 
 ---
 
