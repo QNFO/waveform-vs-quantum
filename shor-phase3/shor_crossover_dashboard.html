@@ -1,0 +1,915 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Shor-Crossover Dashboard</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --panel-bg: #161b22;
+    --border: #30363d;
+    --text: #c9d1d9;
+    --text-dim: #8b949e;
+    --accent: #58a6ff;
+    --accent2: #3fb950;
+    --accent3: #f0883e;
+    --danger: #f85149;
+    --warning: #d2991d;
+    --slider-track: #21262d;
+    --slider-fill: #58a6ff;
+    --card-bg: #1c2128;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    line-height: 1.5;
+  }
+
+  /* Header */
+  header {
+    background: var(--panel-bg);
+    border-bottom: 1px solid var(--border);
+    padding: 16px 24px;
+    text-align: center;
+  }
+  header h1 {
+    font-size: 1.35rem;
+    font-weight: 600;
+    color: #e6edf3;
+    margin-bottom: 2px;
+  }
+  header .subtitle {
+    font-size: 0.85rem;
+    color: var(--text-dim);
+  }
+
+  /* Layout */
+  .main-container {
+    display: grid;
+    grid-template-columns: 360px 1fr;
+    gap: 0;
+    min-height: calc(100vh - 120px);
+  }
+  @media (max-width: 860px) {
+    .main-container { grid-template-columns: 1fr; }
+    .chart-section { min-height: 400px; }
+  }
+
+  /* Controls Panel */
+  .controls-panel {
+    background: var(--panel-bg);
+    border-right: 1px solid var(--border);
+    padding: 16px 20px;
+    overflow-y: auto;
+    max-height: calc(100vh - 120px);
+  }
+  .controls-panel h3 {
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-dim);
+    margin: 16px 0 8px;
+  }
+  .controls-panel h3:first-child { margin-top: 0; }
+
+  .control-group { margin-bottom: 12px; }
+  .control-group label {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.82rem;
+    color: var(--text);
+    margin-bottom: 4px;
+  }
+  .control-group label .val {
+    font-family: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', monospace;
+    font-size: 0.78rem;
+    color: var(--accent);
+    background: var(--card-bg);
+    padding: 1px 8px;
+    border-radius: 3px;
+    min-width: 72px;
+    text-align: right;
+  }
+  input[type="range"] {
+    -webkit-appearance: none;
+    width: 100%;
+    height: 6px;
+    background: var(--slider-track);
+    border-radius: 3px;
+    outline: none;
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 18px;
+    height: 18px;
+    background: var(--accent);
+    border-radius: 50%;
+    cursor: pointer;
+    border: 2px solid var(--panel-bg);
+  }
+  select {
+    width: 100%;
+    padding: 6px 10px;
+    background: var(--card-bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 0.82rem;
+    font-family: inherit;
+    cursor: pointer;
+  }
+  select:focus, input:focus { outline: 1px solid var(--accent); }
+
+  .checkbox-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.8rem;
+    color: var(--text-dim);
+    margin: 8px 0;
+  }
+  .checkbox-row input { accent-color: var(--accent); }
+
+  .divider {
+    border-top: 1px solid var(--border);
+    margin: 14px 0;
+  }
+
+  /* Metrics Cards */
+  .metrics-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin: 12px 0;
+  }
+  .metric-card {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 12px;
+    text-align: center;
+  }
+  .metric-card .metric-label {
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-dim);
+  }
+  .metric-card .metric-value {
+    font-family: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', monospace;
+    font-size: 1.05rem;
+    font-weight: 600;
+    margin-top: 2px;
+  }
+  .metric-card .metric-sub {
+    font-size: 0.7rem;
+    color: var(--text-dim);
+  }
+  .verdict {
+    grid-column: 1 / -1;
+    padding: 12px;
+    text-align: center;
+    border-radius: 6px;
+    font-weight: 700;
+    font-size: 1.1rem;
+    letter-spacing: 0.04em;
+    border: 2px solid transparent;
+  }
+  .verdict.win {
+    background: rgba(63,185,80,0.12);
+    color: var(--accent2);
+    border-color: var(--accent2);
+  }
+  .verdict.lose {
+    background: rgba(248,81,73,0.12);
+    color: var(--danger);
+    border-color: var(--danger);
+  }
+  .verdict.tie {
+    background: rgba(210,153,29,0.12);
+    color: var(--warning);
+    border-color: var(--warning);
+  }
+  .crossover-estimate {
+    text-align: center;
+    font-size: 0.78rem;
+    color: var(--text-dim);
+    margin-top: 6px;
+  }
+
+  /* Chart */
+  .chart-section {
+    background: var(--bg);
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+  }
+  .chart-section h3 {
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-dim);
+    margin-bottom: 8px;
+  }
+  .chart-wrap {
+    flex: 1;
+    position: relative;
+    min-height: 420px;
+  }
+  .chart-wrap canvas {
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
+  .chart-legend {
+    display: flex;
+    gap: 20px;
+    justify-content: center;
+    flex-wrap: wrap;
+    margin-top: 8px;
+    font-size: 0.75rem;
+  }
+  .chart-legend span {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .chart-legend .swatch {
+    width: 14px;
+    height: 3px;
+    border-radius: 2px;
+  }
+
+  /* Footer */
+  footer {
+    text-align: center;
+    padding: 10px;
+    font-size: 0.7rem;
+    color: var(--text-dim);
+    border-top: 1px solid var(--border);
+    background: var(--panel-bg);
+  }
+  footer a { color: var(--accent); text-decoration: none; }
+  footer a:hover { text-decoration: underline; }
+
+  /* Tooltip */
+  .tooltip {
+    display: none;
+    position: absolute;
+    pointer-events: none;
+    background: rgba(22,27,34,0.95);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 14px;
+    font-size: 0.78rem;
+    z-index: 10;
+    white-space: nowrap;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+  }
+  .tooltip b { color: var(--accent); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Shor-Crossover Dashboard: When Quantum Factoring Beats Classical</h1>
+  <div class="subtitle">Interactive exploration of the Shor-vs-GNFS crossover for RSA</div>
+</header>
+
+<div class="main-container">
+  <!-- Controls -->
+  <aside class="controls-panel">
+    <h3>🔧 RSA Target</h3>
+    <div class="control-group">
+      <label>Key Size (bits) <span class="val" id="val-n">2048</span></label>
+      <select id="slider-n">
+        <option value="512">512</option>
+        <option value="1024">1024</option>
+        <option value="2048" selected>2048</option>
+        <option value="4096">4096</option>
+      </select>
+    </div>
+
+    <h3>🖥️ Quantum Hardware</h3>
+    <div class="control-group">
+      <label>Physical Qubits Available <span class="val" id="val-pq">10⁷</span></label>
+      <input type="range" id="slider-pq" min="3" max="9" value="7" step="0.05">
+    </div>
+    <div class="control-group">
+      <label>Gate Fidelity <span class="val" id="val-fid">0.9999</span></label>
+      <input type="range" id="slider-fid" min="0.99" max="0.99999" value="0.9999" step="0.00001">
+    </div>
+    <div class="control-group">
+      <label>Logical Clock Rate <span class="val" id="val-clk">1.0 MHz</span></label>
+      <input type="range" id="slider-clk" min="3" max="7" value="6" step="0.05">
+    </div>
+
+    <h3>📐 Surface Code</h3>
+    <div class="checkbox-row">
+      <input type="checkbox" id="auto-d" checked>
+      <label for="auto-d">Auto-compute code distance from fidelity</label>
+    </div>
+    <div class="control-group" id="manual-d-group" style="opacity:0.4;pointer-events:none;">
+      <label>Code Distance (d) <span class="val" id="val-d">15</span></label>
+      <input type="range" id="slider-d" min="3" max="81" value="15" step="2">
+    </div>
+
+    <h3>⚙️ Advanced Parameters</h3>
+    <div class="control-group">
+      <label>Classical Ops/sec <span class="val" id="val-cops">1.0 EFLOPS</span></label>
+      <input type="range" id="slider-cops" min="12" max="21" value="18" step="0.1">
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- Metrics -->
+    <h3>📊 Computed Metrics</h3>
+    <div class="metrics-grid" id="metrics-grid">
+      <div class="metric-card">
+        <div class="metric-label">Logical Qubits</div>
+        <div class="metric-value" id="m-logical">--</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Code Distance</div>
+        <div class="metric-value" id="m-distance">--</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Phys. Qubits Req'd</div>
+        <div class="metric-value" id="m-physreq">--</div>
+        <div class="metric-sub" id="m-capacity">--</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Shor Wall Time</div>
+        <div class="metric-value" id="m-shor">--</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">GNFS Classical</div>
+        <div class="metric-value" id="m-gnfs">--</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Crossover Year Est.</div>
+        <div class="metric-value" id="m-crossyr">--</div>
+      </div>
+      <div class="verdict" id="verdict-card">--</div>
+    </div>
+  </aside>
+
+  <!-- Chart -->
+  <section class="chart-section">
+    <h3>📈 Shor vs. GNFS — Log-Log Time vs. RSA Key Size</h3>
+    <div class="chart-wrap" id="chart-wrap">
+      <canvas id="chart-canvas"></canvas>
+      <div class="tooltip" id="tooltip"></div>
+    </div>
+    <div class="chart-legend">
+      <span><span class="swatch" style="background:#58a6ff;"></span> Shor (current hw)</span>
+      <span><span class="swatch" style="background:#f0883e;"></span> GNFS (classical)</span>
+      <span><span class="swatch" style="background:#3fb950;width:8px;height:8px;border-radius:50%;"></span> Hardware Roadmap</span>
+      <span><span class="swatch" style="background:#d2991d;border:1px dashed #d2991d;background:none;"></span> Crossover</span>
+    </div>
+  </section>
+</div>
+
+<footer>
+  Data model based on Gidney &amp; Ekerå (2021) surface-code factoring. GNFS: L<sub>N</sub>[1/3, 1.923].
+  Hardware projections: IBM Roadmap, Google Quantum AI.
+  Built as a research exploration tool — not a production benchmark.
+</footer>
+
+<script>
+(function() {
+  'use strict';
+
+  // ── DOM refs ────────────────────────────────────────────────
+  const $ = id => document.getElementById(id);
+  const sliders = {
+    n:      $('slider-n'),
+    pq:     $('slider-pq'),
+    fid:    $('slider-fid'),
+    clk:    $('slider-clk'),
+    d:      $('slider-d'),
+    cops:   $('slider-cops'),
+    autoD:  $('auto-d'),
+  };
+  const vals = {
+    n:      $('val-n'),
+    pq:     $('val-pq'),
+    fid:    $('val-fid'),
+    clk:    $('val-clk'),
+    d:      $('val-d'),
+    cops:   $('val-cops'),
+  };
+  const metrics = {
+    logical: $('m-logical'),
+    distance: $('m-distance'),
+    physreq: $('m-physreq'),
+    capacity: $('m-capacity'),
+    shor: $('m-shor'),
+    gnfs: $('m-gnfs'),
+    crossyr: $('m-crossyr'),
+    verdict: $('verdict-card'),
+  };
+  const chartWrap = $('chart-wrap');
+  const canvas = $('chart-canvas');
+  const tooltip = $('tooltip');
+  const manualDGroup = $('manual-d-group');
+
+  // ── State ───────────────────────────────────────────────────
+  const state = {
+    n: 2048,
+    physQubitsAvail: 1e7,
+    fidelity: 0.9999,
+    clockRateHz: 1e6,
+    distance: 15,
+    autoDistance: true,
+    classicalOps: 1e18,
+  };
+
+  // ── Helpers ─────────────────────────────────────────────────
+  function fmtSci(v, prec) {
+    if (v === 0) return '0';
+    if (v === Infinity || isNaN(v)) return '∞';
+    const exp = Math.floor(Math.log10(Math.abs(v)));
+    if (exp < 3 && exp > -3) return v.toPrecision(prec || 4);
+    const mant = v / Math.pow(10, exp);
+    return mant.toFixed(2) + '×10' + superscript(exp);
+  }
+  function superscript(n) {
+    const map = {'0':'⁰','1':'¹','2':'²','3':'³','4':'⁴','5':'⁵','6':'⁶','7':'⁷','8':'⁸','9':'⁹','-':'⁻'};
+    return String(n).split('').map(c => map[c] || c).join('');
+  }
+  function fmtTime(seconds) {
+    if (seconds === Infinity || isNaN(seconds)) return '∞';
+    if (seconds < 1e-6) return (seconds*1e9).toPrecision(3) + ' ns';
+    if (seconds < 1e-3) return (seconds*1e6).toPrecision(3) + ' µs';
+    if (seconds < 1) return (seconds*1e3).toPrecision(3) + ' ms';
+    if (seconds < 60) return seconds.toPrecision(3) + ' sec';
+    if (seconds < 3600) return (seconds/60).toPrecision(3) + ' min';
+    if (seconds < 86400) return (seconds/3600).toPrecision(3) + ' hr';
+    const days = seconds / 86400;
+    if (days < 365.25) return days.toPrecision(3) + ' days';
+    return (days/365.25).toPrecision(3) + ' yr';
+  }
+  function fmtQubits(n) {
+    if (n < 1e3) return Math.round(n).toLocaleString();
+    if (n < 1e6) return (n/1e3).toFixed(1) + 'K';
+    if (n < 1e9) return (n/1e6).toFixed(1) + 'M';
+    return (n/1e9).toFixed(1) + 'B';
+  }
+  function fmtHz(hz) {
+    if (hz >= 1e9) return (hz/1e9).toFixed(1) + ' GHz';
+    if (hz >= 1e6) return (hz/1e6).toFixed(1) + ' MHz';
+    if (hz >= 1e3) return (hz/1e3).toFixed(1) + ' kHz';
+    return hz.toFixed(1) + ' Hz';
+  }
+  function fmtFLOPS(ops) {
+    if (ops >= 1e21) return (ops/1e21).toFixed(1) + ' ZFLOPS';
+    if (ops >= 1e18) return (ops/1e18).toFixed(1) + ' EFLOPS';
+    if (ops >= 1e15) return (ops/1e15).toFixed(1) + ' PFLOPS';
+    if (ops >= 1e12) return (ops/1e12).toFixed(1) + ' TFLOPS';
+    return (ops/1e9).toFixed(1) + ' GFLOPS';
+  }
+
+  // ── Surface code model ──────────────────────────────────────
+  function computeDistance(fidelity, n) {
+    // target logical error < 1/(total_gates) ≈ 1/(2.4 n³)
+    const totalOps = 2.4 * Math.pow(n, 3);
+    const targetErr = 1.0 / totalOps;
+    const infidelity = 1 - fidelity;
+    if (infidelity <= 0 || infidelity >= 0.01) return 81; // clamp
+    const pThresh = 0.01;
+    const logSuppress = Math.log10(1.0 / targetErr);
+    const logRatio = Math.log10(pThresh / infidelity);
+    if (logRatio <= 0) return 81;
+    const d = Math.max(3, Math.ceil(logSuppress / logRatio));
+    return Math.min(81, d);
+  }
+
+  function computeShor(n, fidelity, clockRateHz, physAvail, autoD, manualD) {
+    const logicalQubits = 2 * n + 3;
+    const toffoliGates = 0.3 * Math.pow(n, 3);
+    const tGates = 7 * toffoliGates;
+
+    const d = autoD ? computeDistance(fidelity, n) : manualD;
+    const physPerLogical = 2 * d * d;
+    const physRequired = logicalQubits * physPerLogical;
+
+    // parallelism: roughly sqrt of effective logical qubits (depth reduction)
+    const parallelism = Math.sqrt(logicalQubits);
+    const tDepth = tGates / parallelism;
+
+    // logical clock rate: surface code cycle = d × physical cycle; logical gate ~ d cycles
+    // logical_clock = physical_clock / d (each logical gate takes ~d surface code cycles)
+    const logicalClock = clockRateHz / d;
+    const wallSeconds = logicalClock > 0 ? tDepth / logicalClock : Infinity;
+
+    return {
+      logicalQubits, toffoliGates, tGates, d,
+      physPerLogical, physRequired,
+      parallelism, tDepth, logicalClock, wallSeconds,
+      hasCapacity: physAvail >= physRequired,
+    };
+  }
+
+  function computeGNFS(n) {
+    const N = Math.pow(2, n);
+    const lnN = Math.log(N);
+    const lnlnN = Math.log(lnN);
+    const ops = Math.exp(1.923 * Math.pow(lnN, 1/3) * Math.pow(lnlnN, 2/3));
+    return { operations: ops };
+  }
+
+  // ── Crossover projection ────────────────────────────────────
+  function projectCrossover(n, fidelity, clockHz, physAvail, classicalOps, autoD, manualD) {
+    // Growth rates (annual multipliers)
+    const qubitGrowth = 1.35;    // qubits grow ~35%/yr (Neven-style)
+    const fidGrowth = 0.92;      // infidelity shrinks to 92%/yr (halves ~every 5yr)
+    const clockGrowth = 1.05;    // clock rate grows ~5%/yr
+    const classicalGrowth = 1.12; // classical ~12%/yr
+
+    const maxYears = 100;
+    let curPhys = physAvail;
+    let curFid = fidelity;
+    let curClock = clockHz;
+    let curClOps = classicalOps;
+    let curDist = manualD;
+
+    const gnfsOps = computeGNFS(n).operations;
+
+    for (let yr = 0; yr < maxYears; yr++) {
+      const now = new Date();
+      const currentYear = now.getFullYear() + yr;
+
+      // improve parameters
+      curPhys = physAvail * Math.pow(qubitGrowth, yr);
+      // fidelity improves: asymptote at 0.999999
+      const maxFid = 0.999999;
+      const curInfid = (1 - fidelity) * Math.pow(fidGrowth, yr);
+      curFid = Math.min(maxFid, 1 - Math.max(1e-8, curInfid));
+      curClock = clockHz * Math.pow(clockGrowth, yr);
+      curClOps = classicalOps * Math.pow(classicalGrowth, yr);
+
+      curDist = autoD ? computeDistance(curFid, n) : curDist;
+
+      const shor = computeShor(n, curFid, curClock, curPhys, autoD, curDist);
+      const classicalSec = gnfsOps / curClOps;
+
+      if (shor.wallSeconds < classicalSec && shor.hasCapacity) {
+        return { year: currentYear, yearsFromNow: yr, shor, classicalSec, curPhys, curFid, curClock, curClOps };
+      }
+    }
+    return null;
+  }
+
+  // ── Display update ──────────────────────────────────────────
+  function updateDisplay() {
+    const { n, physQubitsAvail, fidelity, clockRateHz, distance, autoDistance, classicalOps } = state;
+
+    // Labels
+    vals.n.textContent = n;
+    vals.pq.textContent = fmtSci(physQubitsAvail, 3);
+    vals.fid.textContent = fidelity.toFixed(5);
+    vals.clk.textContent = fmtHz(clockRateHz);
+    vals.d.textContent = distance;
+    vals.cops.textContent = fmtFLOPS(classicalOps);
+
+    // Compute
+    const shor = computeShor(n, fidelity, clockRateHz, physQubitsAvail, autoDistance, distance);
+    const gnfs = computeGNFS(n);
+    const classicalSec = gnfs.operations / classicalOps;
+    const classicalYr = classicalSec / (365.25 * 86400);
+
+    const crossover = projectCrossover(n, fidelity, clockRateHz, physQubitsAvail, classicalOps, autoDistance, distance);
+
+    // Metrics
+    metrics.logical.textContent = shor.logicalQubits.toLocaleString();
+    metrics.distance.textContent = 'd = ' + shor.d;
+    metrics.physreq.textContent = fmtQubits(shor.physRequired);
+    metrics.capacity.textContent = shor.hasCapacity
+      ? '✓ Capacity sufficient'
+      : '⚠ Need ' + fmtQubits(shor.physRequired - physQubitsAvail) + ' more';
+    metrics.shor.textContent = fmtTime(shor.wallSeconds);
+    metrics.gnfs.textContent = fmtSci(classicalYr, 3) + ' yr';
+    metrics.crossyr.textContent = crossover ? (crossover.yearsFromNow === 0 ? 'This year' : '~' + crossover.year) : '>100 yr';
+
+    // Verdict
+    const quantumWins = shor.hasCapacity && shor.wallSeconds < classicalSec;
+    metrics.verdict.className = 'verdict';
+    if (!shor.hasCapacity) {
+      metrics.verdict.classList.add('lose');
+      metrics.verdict.textContent = 'NO — Insufficient qubits';
+    } else if (shor.wallSeconds < classicalSec) {
+      metrics.verdict.classList.add('win');
+      metrics.verdict.textContent = 'YES — Quantum wins!';
+    } else if (shor.wallSeconds === Infinity || classicalSec === Infinity) {
+      metrics.verdict.classList.add('lose');
+      metrics.verdict.textContent = 'NO';
+    } else {
+      const ratio = shor.wallSeconds / classicalSec;
+      metrics.verdict.classList.add(ratio < 100 ? 'tie' : 'lose');
+      metrics.verdict.textContent = 'NO — Shor is ' + fmtSci(ratio, 2) + '× slower';
+    }
+
+    drawChart(n, fidelity, clockRateHz, physQubitsAvail, classicalOps, autoDistance, distance, shor);
+  }
+
+  // ── Chart drawing ───────────────────────────────────────────
+  function drawChart(nActive, fidelity, clockRateHz, physAvail, classicalOps, autoD, manualD) {
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.parentElement.getBoundingClientRect();
+    const W = rect.width * dpr;
+    const H = rect.height * dpr;
+    canvas.width = W;
+    canvas.height = H;
+    canvas.style.width = rect.width + 'px';
+    canvas.style.height = rect.height + 'px';
+
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, W, H);
+
+    const keySizes = [256, 512, 1024, 2048, 3072, 4096, 6144, 8192];
+
+    // Compute all data points
+    const shorData = keySizes.map(kn => {
+      const s = computeShor(kn, fidelity, clockRateHz, physAvail, autoD, manualD);
+      const g = computeGNFS(kn);
+      const cSec = g.operations / classicalOps;
+      const cYr = cSec / (365.25 * 86400);
+      return {
+        n: kn,
+        shorYr: s.wallSeconds / (365.25 * 86400),
+        gnfsYr: cYr,
+        shorSec: s.wallSeconds,
+        hasCapacity: s.hasCapacity,
+        physReq: s.physRequired,
+        d: s.d,
+      };
+    });
+
+    // Find crossover points (where Shor crosses GNFS)
+    let crossPoints = [];
+    for (let i = 1; i < shorData.length; i++) {
+      const a = shorData[i-1], b = shorData[i];
+      if (!a.hasCapacity || !b.hasCapacity) continue;
+      const aDiff = a.shorYr - a.gnfsYr;
+      const bDiff = b.shorYr - b.gnfsYr;
+      if (Math.sign(aDiff) !== Math.sign(bDiff) && isFinite(a.shorYr) && isFinite(b.shorYr)) {
+        // Linear interpolation in log space for key size
+        const t = Math.abs(aDiff) / (Math.abs(aDiff) + Math.abs(bDiff));
+        const crossN = Math.exp(Math.log(a.n) + t * (Math.log(b.n) - Math.log(a.n)));
+        const crossYr = Math.exp(Math.log(a.shorYr) + t * (Math.log(b.shorYr) - Math.log(a.shorYr)));
+        crossPoints.push({ n: crossN, yr: crossYr });
+      }
+    }
+
+    // Margins
+    const ml = 80 * dpr, mr = 40 * dpr, mt = 50 * dpr, mb = 60 * dpr;
+    const pw = W - ml - mr, ph = H - mt - mb;
+
+    // Log scales
+    const logXMin = Math.log(200), logXMax = Math.log(10000);
+    const logYMin = Math.log(1e-9), logYMax = Math.log(1e12);
+
+    function xToPixel(nVal) { return ml + (Math.log(nVal) - logXMin) / (logXMax - logXMin) * pw; }
+    function yToPixel(yVal) { return mt + ph - (Math.log(Math.max(yVal, 1e-9)) - logYMin) / (logYMax - logYMin) * ph; }
+
+    // Grid
+    ctx.strokeStyle = '#21262d';
+    ctx.lineWidth = 1 * dpr;
+    const xTicks = [256, 512, 1024, 2048, 4096, 8192];
+    xTicks.forEach(t => {
+      const x = xToPixel(t);
+      ctx.beginPath(); ctx.moveTo(x, mt); ctx.lineTo(x, mt + ph); ctx.stroke();
+    });
+    const yTicks = [1e-9, 1e-6, 1e-3, 1, 1e3, 1e6, 1e9, 1e12];
+    yTicks.forEach(t => {
+      const y = yToPixel(t);
+      ctx.beginPath(); ctx.moveTo(ml, y); ctx.lineTo(ml + pw, y); ctx.stroke();
+    });
+
+    // Axes
+    ctx.strokeStyle = '#8b949e';
+    ctx.lineWidth = 1.5 * dpr;
+    ctx.beginPath(); ctx.moveTo(ml, mt); ctx.lineTo(ml, mt + ph); ctx.lineTo(ml + pw, mt + ph); ctx.stroke();
+
+    // Axis labels
+    ctx.fillStyle = '#8b949e';
+    ctx.font = `${11*dpr}px -apple-system, sans-serif`;
+    ctx.textAlign = 'center';
+    xTicks.forEach(t => {
+      ctx.fillText(t >= 1024 ? (t/1024)+'K' : t, xToPixel(t), mt + ph + 18*dpr);
+    });
+    ctx.fillText('RSA Key Size (bits)', ml + pw/2, mt + ph + 40*dpr);
+
+    ctx.textAlign = 'right';
+    yTicks.forEach(t => {
+      const lbl = t >= 1e9 ? (t/1e9)+'B yr' : t >= 1e6 ? (t/1e6)+'M yr'
+               : t >= 1e3 ? (t/1e3)+'K yr' : t >= 1 ? t+' yr'
+               : t >= 1e-3 ? (t*1e3)+' ms' : t >= 1e-6 ? (t*1e6)+' µs' : (t*1e9)+' ns';
+      ctx.fillText(lbl, ml - 8*dpr, yToPixel(t) + 4*dpr);
+    });
+    ctx.save();
+    ctx.translate(14*dpr, mt + ph/2);
+    ctx.rotate(-Math.PI/2);
+    ctx.textAlign = 'center';
+    ctx.fillText('Wall-Clock Time', 0, 0);
+    ctx.restore();
+
+    // Hardware roadmap reference markers
+    const roadmap = [
+      { label: 'IBM Condor\n(2023)', qubits: 1121, yr: 2023 },
+      { label: 'IBM Kookaburra\n(~2033)', qubits: 100000, yr: 2033 },
+      { label: 'Google Willow\n(2024)', qubits: 105, yr: 2024 },
+      { label: 'Google Sycamore\n(2019)', qubits: 53, yr: 2019 },
+    ];
+
+    roadmap.forEach(pt => {
+      const physNeededFor2048 = shorData.find(d => d.n === 2048);
+      if (!physNeededFor2048) return;
+
+      // Show on chart as a vertical marker at n=2048 at "current hardware" Y position
+      // We plot these as reference qubit count relative to what's needed
+      const ratio = pt.qubits / physNeededFor2048.physReq;
+      const yrEquivalent = physNeededFor2048.shorYr / Math.max(ratio, 0.0001);
+
+      const x = xToPixel(2048);
+      const y = yToPixel(Math.min(Math.max(yrEquivalent, 1e-9), 1e12));
+      if (isNaN(y) || y < mt || y > mt + ph) return;
+
+      ctx.fillStyle = '#3fb950';
+      ctx.beginPath(); ctx.arc(x, y, 4*dpr, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = '#3fb950';
+      ctx.font = `${9*dpr}px -apple-system, sans-serif`;
+      ctx.textAlign = 'left';
+      ctx.fillText(pt.label.split('\n')[0] + ' ' + fmtQubits(pt.qubits), x + 8*dpr, y + 3*dpr);
+
+      // Dashed horizontal line
+      ctx.save();
+      ctx.setLineDash([4*dpr, 4*dpr]);
+      ctx.strokeStyle = 'rgba(63,185,80,0.3)';
+      ctx.lineWidth = 1*dpr;
+      ctx.beginPath(); ctx.moveTo(ml, y); ctx.lineTo(x - 6*dpr, y); ctx.stroke();
+      ctx.restore();
+    });
+
+    // Draw GNFS curve
+    ctx.strokeStyle = '#f0883e';
+    ctx.lineWidth = 2.5*dpr;
+    ctx.beginPath();
+    let firstG = true;
+    shorData.forEach(d => {
+      const x = xToPixel(d.n), y = yToPixel(d.gnfsYr);
+      if (firstG) { ctx.moveTo(x, y); firstG = false; }
+      else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+
+    // GNFS points
+    shorData.forEach(d => {
+      const x = xToPixel(d.n), y = yToPixel(d.gnfsYr);
+      ctx.fillStyle = '#f0883e';
+      ctx.beginPath(); ctx.arc(x, y, 4*dpr, 0, Math.PI*2); ctx.fill();
+    });
+
+    // Draw Shor curve (dashed where insufficient capacity)
+    ctx.strokeStyle = '#58a6ff';
+    ctx.lineWidth = 2.5*dpr;
+    ctx.beginPath();
+    let firstS = true, lastSolid = null;
+    shorData.forEach(d => {
+      const x = xToPixel(d.n), y = yToPixel(Math.max(d.shorYr, 1e-9));
+      if (firstS) { ctx.moveTo(x, y); firstS = false; }
+      else ctx.lineTo(x, y);
+      if (d.hasCapacity) lastSolid = x;
+    });
+    ctx.stroke();
+
+    // Shor points
+    shorData.forEach(d => {
+      const x = xToPixel(d.n), y = yToPixel(Math.max(d.shorYr, 1e-9));
+      ctx.fillStyle = d.hasCapacity ? '#58a6ff' : '#8b949e';
+      ctx.beginPath(); ctx.arc(x, y, 4*dpr, 0, Math.PI*2); ctx.fill();
+    });
+
+    // Highlight active key size
+    const activePt = shorData.find(d => d.n === nActive);
+    if (activePt) {
+      const ax = xToPixel(nActive), ay = yToPixel(Math.max(activePt.shorYr, 1e-9));
+      ctx.strokeStyle = '#58a6ff';
+      ctx.lineWidth = 2*dpr;
+      ctx.beginPath(); ctx.arc(ax, ay, 8*dpr, 0, Math.PI*2); ctx.stroke();
+
+      const agy = yToPixel(activePt.gnfsYr);
+      ctx.strokeStyle = '#f0883e';
+      ctx.beginPath(); ctx.arc(ax, agy, 8*dpr, 0, Math.PI*2); ctx.stroke();
+    }
+
+    // Crossover points
+    crossPoints.forEach(cp => {
+      const cx = xToPixel(cp.n), cy = yToPixel(cp.yr);
+      if (isNaN(cx) || isNaN(cy) || cx < ml || cx > ml + pw || cy < mt || cy > mt + ph) return;
+
+      // Glow
+      ctx.fillStyle = 'rgba(210,153,29,0.4)';
+      ctx.beginPath(); ctx.arc(cx, cy, 12*dpr, 0, Math.PI*2); ctx.fill();
+      // Dot
+      ctx.fillStyle = '#d2991d';
+      ctx.beginPath(); ctx.arc(cx, cy, 6*dpr, 0, Math.PI*2); ctx.fill();
+      // Label
+      ctx.fillStyle = '#d2991d';
+      ctx.font = `bold ${10*dpr}px -apple-system, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.fillText('CROSSOVER', cx, cy - 14*dpr);
+      ctx.fillText('~' + Math.round(cp.n) + '-bit', cx, cy + 16*dpr);
+    });
+
+    // Store for hover
+    canvas._chartData = { shorData, crossPoints, xToPixel, yToPixel, ml, mt, ph, pw, nActive };
+  }
+
+  // ── Hover tooltip ───────────────────────────────────────────
+  canvas.addEventListener('mousemove', function(e) {
+    const data = canvas._chartData;
+    if (!data) return;
+    const { shorData, xToPixel, yToPixel, ml, mt, ph, pw, nActive } = data;
+    const rect = canvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+
+    let nearest = null, bestDist = Infinity;
+    shorData.forEach(d => {
+      const sx = xToPixel(d.n) / (window.devicePixelRatio||1);
+      const sy = yToPixel(d.shorYr) / (window.devicePixelRatio||1);
+      const dist = Math.hypot(mx - sx, my - sy);
+      if (dist < bestDist) { bestDist = dist; nearest = d; }
+
+      const gx = xToPixel(d.n) / (window.devicePixelRatio||1);
+      const gy = yToPixel(d.gnfsYr) / (window.devicePixelRatio||1);
+      const distG = Math.hypot(mx - gx, my - gy);
+      if (distG < bestDist) { bestDist = distG; nearest = d; nearest.isG = true; }
+    });
+
+    if (nearest && bestDist < 40) {
+      const px = xToPixel(nearest.n) / (window.devicePixelRatio||1);
+      const sy = yToPixel(nearest.shorYr) / (window.devicePixelRatio||1);
+      const gy = yToPixel(nearest.gnfsYr) / (window.devicePixelRatio||1);
+
+      tooltip.style.display = 'block';
+      tooltip.style.left = Math.min(px + 10, rect.width - 200) + 'px';
+      tooltip.style.top = Math.min(Math.max(nearest.isG ? gy : sy, 10), rect.height - 90) + 'px';
+      tooltip.innerHTML =
+        '<b>RSA-' + nearest.n + '</b><br>' +
+        'Shor: ' + fmtTime(nearest.shorSec) +
+        (nearest.hasCapacity ? '' : ' <span style="color:#f85149">⚠ no capacity</span>') + '<br>' +
+        'GNFS: ' + fmtSci(nearest.gnfsYr, 3) + ' yr<br>' +
+        'd = ' + nearest.d + '&ensp; qubits: ' + fmtQubits(nearest.physReq);
+    } else {
+      tooltip.style.display = 'none';
+    }
+  });
+  canvas.addEventListener('mouseleave', () => { tooltip.style.display = 'none'; });
+
+  // ── Event wiring ────────────────────────────────────────────
+  function onSliderChange() {
+    state.n = parseInt(sliders.n.value);
+    state.physQubitsAvail = Math.pow(10, parseFloat(sliders.pq.value));
+    state.fidelity = parseFloat(sliders.fid.value);
+    state.clockRateHz = Math.pow(10, parseFloat(sliders.clk.value));
+    state.classicalOps = Math.pow(10, parseFloat(sliders.cops.value));
+    state.autoDistance = sliders.autoD.checked;
+    state.distance = parseInt(sliders.d.value);
+
+    // Update manual d group visibility
+    manualDGroup.style.opacity = state.autoDistance ? '0.4' : '1';
+    manualDGroup.style.pointerEvents = state.autoDistance ? 'none' : 'auto';
+
+    updateDisplay();
+  }
+
+  sliders.n.addEventListener('change', onSliderChange);
+  sliders.pq.addEventListener('input', onSliderChange);
+  sliders.fid.addEventListener('input', onSliderChange);
+  sliders.clk.addEventListener('input', onSliderChange);
+  sliders.d.addEventListener('input', onSliderChange);
+  sliders.cops.addEventListener('input', onSliderChange);
+  sliders.autoD.addEventListener('change', onSliderChange);
+
+  // Resize
+  let resizeTimer;
+  window.addEventListener('resize', () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(updateDisplay, 150);
+  });
+
+  // ── Init ────────────────────────────────────────────────────
+  onSliderChange();
+})();
+</script>
+</body>
+</html>
