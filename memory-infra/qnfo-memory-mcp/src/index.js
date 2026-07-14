@@ -170,23 +170,49 @@ async function getEmbedding(text, env) {
 }
 
 // === TOOL: search_papers ===
-async function tool_search_papers(args) {
+async function tool_search_papers(args, env) {
   const query = args.query;
-  const limit = Math.min(args.limit || 10, 20);
+  if (!query) {
+    return { content: [{ type: "text", text: "Missing required: query" }], isError: true };
+  }
+  const limit = Math.max(1, Math.min(args.limit || 10, 20));
+
+  // Use MCP Worker's own AI binding for embedding (avoid subrequest CPU timeout)
+  const embedding = await getEmbedding(query, env);
+  if (!embedding) {
+    return { content: [{ type: "text", text: "Failed to generate embedding for query" }], isError: true };
+  }
+
+  // Query qwav-research-v2 Vectorize index directly via binding
   try {
-    const url = `${SEARCH_WORKER}/api/search/papers?q=${encodeURIComponent(query)}&limit=${limit}`;
-    const resp = await fetch(url, { headers: { "User-Agent": "qnfo-memory-mcp/1.0" } });
-    const data = await resp.json();
-    if (data.error) {
-      return { content: [{ type: "text", text: `Paper search failed: ${data.error}` }], isError: true };
-    }
-    const papers = (data.papers || []).map(p => ({
-      title: p.title,
-      score: p.score,
-      url: p.url,
-      source: p.source,
-      id: p.id
-    }));
+    const results = await env.PAPER_VZ.query(embedding, {
+      topK: limit,
+      returnValues: false,
+      returnMetadata: true,
+    });
+
+    const papers = results.matches.map(m => {
+      const meta = m.metadata || {};
+      let bestTitle = meta.title || meta.slug || "";
+      if (!bestTitle) {
+        const source = meta.source || "";
+        const fname = meta.file || "";
+        if (source && fname) bestTitle = `${source}/${fname}`;
+        else if (source) bestTitle = source;
+        else if (fname) bestTitle = fname;
+        else bestTitle = "Untitled";
+      }
+      return {
+        id: String(m.id),
+        score: Math.round((m.score || 0) * 10000) / 10000,
+        title: bestTitle,
+        url: meta.url || "",
+        slug: meta.slug || "",
+        source: meta.source || "",
+        chunk: meta.chunk || null,
+      };
+    });
+
     return {
       content: [{
         type: "text",
@@ -194,7 +220,7 @@ async function tool_search_papers(args) {
       }]
     };
   } catch (e) {
-    return { content: [{ type: "text", text: `Search worker unreachable: ${e.message}` }], isError: true };
+    return { content: [{ type: "text", text: `Paper search failed: ${e.message}` }], isError: true };
   }
 }
 
@@ -244,6 +270,14 @@ async function tool_search_memories(args, env) {
 // === TOOL: remember_fact ===
 async function tool_remember_fact(args, env) {
   const { content, category, importance = 0.7, summary, session_id } = args;
+  
+  // Input validation (RED-TEAM C2 fix)
+  if (!content || !category) {
+    const missing = [];
+    if (!content) missing.push("content");
+    if (!category) missing.push("category");
+    return { content: [{ type: "text", text: `Missing required: ${missing.join(", ")}` }], isError: true };
+  }
   const id = `mem:${category}:${Date.now()}:${crypto.randomUUID().slice(0, 8)}`;
   const memSummary = summary || content.slice(0, 200);
   const timestamp = new Date().toISOString();
@@ -316,7 +350,7 @@ async function tool_recall_facts(args, env) {
     params.push(`%${keyword}%`, `%${keyword}%`);
   }
   sql += " ORDER BY created_at DESC LIMIT ?";
-  params.push(Math.min(limit, 50));
+  params.push(Math.max(1, Math.min(limit, 50)));
 
   try {
     const result = await env.MEMORY_DB.prepare(sql).bind(...params).all();
@@ -385,13 +419,19 @@ async function tool_query_graph(args) {
 }
 
 // === TOOL: get_paper_context ===
-async function tool_get_paper_context(args) {
-  const { slug, limit_chars = 5000 } = args;
+async function tool_get_paper_context(args, env) {
+  const slug = args.slug;
+  if (!slug) {
+    return { content: [{ type: "text", text: "Missing required: slug" }], isError: true };
+  }
+  const limit_chars = Math.max(100, args.limit_chars || 5000);
   const D1_LIVING_PAPER = "70a58cb3-b2cd-498d-877f-ecca86859a22";
 
   try {
     const d1Url = `https://api.cloudflare.com/client/v4/accounts/${ACCOUNT_ID}/d1/database/${D1_LIVING_PAPER}/query`;
-    const resp = await fetch(d1Url, {
+    
+    // Try exact match first
+    let resp = await fetch(d1Url, {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${env.CF_API_TOKEN}`,
@@ -402,12 +442,12 @@ async function tool_get_paper_context(args) {
         params: [slug]
       })
     });
-    const data = await resp.json();
-    const paper = data.result?.[0]?.results?.[0];
+    let data = await resp.json();
+    let paper = data.result?.[0]?.results?.[0];
 
     if (!paper) {
       // Try partial match
-      const resp2 = await fetch(d1Url, {
+      resp = await fetch(d1Url, {
         method: "POST",
         headers: {
           "Authorization": `Bearer ${env.CF_API_TOKEN}`,
@@ -418,24 +458,12 @@ async function tool_get_paper_context(args) {
           params: [`%${slug}%`]
         })
       });
-      const data2 = await resp2.json();
-      const paper2 = data2.result?.[0]?.results?.[0];
-      if (!paper2) {
-        return { content: [{ type: "text", text: `Paper "${slug}" not found` }], isError: true };
-      }
-      const body = (paper2.body_md || "").slice(0, limit_chars);
-      return {
-        content: [{
-          type: "text",
-          text: JSON.stringify({
-            slug: paper2.slug,
-            title: paper2.title,
-            body_preview: body,
-            truncated: (paper2.body_md || "").length > limit_chars,
-            created_at: paper2.created_at
-          }, null, 2)
-        }]
-      };
+      data = await resp.json();
+      paper = data.result?.[0]?.results?.[0];
+    }
+
+    if (!paper) {
+      return { content: [{ type: "text", text: `Paper "${slug}" not found in living-paper D1` }], isError: true };
     }
 
     const body = (paper.body_md || "").slice(0, limit_chars);
@@ -459,12 +487,12 @@ async function tool_get_paper_context(args) {
 // === Tool dispatcher ===
 async function callTool(name, args, env) {
   switch (name) {
-    case "search_papers": return await tool_search_papers(args);
+    case "search_papers": return await tool_search_papers(args, env);
     case "search_memories": return await tool_search_memories(args, env);
     case "remember_fact": return await tool_remember_fact(args, env);
     case "recall_facts": return await tool_recall_facts(args, env);
     case "query_graph": return await tool_query_graph(args);
-    case "get_paper_context": return await tool_get_paper_context(args);
+    case "get_paper_context": return await tool_get_paper_context(args, env);
     default:
       return { content: [{ type: "text", text: `Unknown tool: ${name}` }], isError: true };
   }
