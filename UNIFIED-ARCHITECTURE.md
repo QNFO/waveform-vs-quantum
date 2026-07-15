@@ -86,20 +86,20 @@ projects/<PORTFOLIO.PROGRAM.PROJECT.PX.TY>/<filename>
 ```
 
 Protected paths (no deletion without explicit authorization):
-- `qnfo/papers/` — Published paper artifacts
-- `qnfo/releases/` — Release artifacts
-- `qnfo/prompts/skills/` — Skill definitions
-- `qnfo/tools/` — Tool scripts
+- QNFO-RELEASES bucket: `papers/` — Published paper artifacts
+- QNFO-RELEASES bucket: `releases/` — Release artifacts
+- QNFO-SKILLS bucket: `prompts/skills/` — Skill definitions
+- QNFO-SKILLS bucket: `tools/` — Tool scripts
 
 ### 3.2 Storage Responsibilities
 
 | Data Type | Primary Store | Backup | Notes |
 |:----------|:-------------|:-------|:------|
 | Paper metadata | D1 `papers` | R2 `backups/` | D1 is canonical |
-| Paper body (markdown) | D1 `papers.body_md` | R2 `qnfo/papers/` | Both must exist before clearing D1 |
-| PDFs | R2 `qnfo/papers/` | Zenodo | Immutable |
+| Paper body (markdown) | D1 `papers.body_md` | R2 qnfo-releases bucket: `papers/` | Both must exist before clearing D1 |
+| PDFs | R2 qnfo-releases bucket: `papers/` | Zenodo | Immutable |
 | Audit trail | D1 `qnfo-audit` | R2 `backups/` | Append-only |
-| Skills | R2 `qnfo/prompts/skills/` | GitHub | R2 is canonical deployment |
+| Skills | R2 qnfo-skills bucket: `prompts/skills/` | GitHub | R2 is canonical deployment |
 | Discovery index | D1 `discovery-registry` | R2 | Auto-synced |
 
 ---
@@ -187,7 +187,7 @@ Before any mutation operation:
 3. **D1↔KG**: Every D1 paper must have a KG Paper node
 4. **D1↔Vectorize**: Papers with body_md should have Vectorize embeddings
 5. **R2↔Pages**: Static sites deployed from R2 content
-6. **Skills↔R2**: All 55 skills synced to R2 `qnfo/prompts/skills/`
+6. **Skills↔R2**: All 55 skills synced to R2 qnfo-skills bucket: `prompts/skills/`
 
 ---
 
