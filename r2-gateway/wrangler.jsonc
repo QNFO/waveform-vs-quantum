@@ -1,0 +1,8 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "r2-gateway",
+  "main": "worker.js",
+  "compatibility_date": "2026-07-15",
+  "account_id": "edb167b78c9fb901ea5bca3ce58ccc4b",
+  "vars": {}
+}
