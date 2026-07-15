@@ -1,8 +1,14 @@
 {
-  "$schema": "node_modules/wrangler/config-schema.json",
   "name": "r2-gateway",
   "main": "worker.js",
   "compatibility_date": "2026-07-15",
   "account_id": "edb167b78c9fb901ea5bca3ce58ccc4b",
-  "vars": {}
+  "r2_buckets": [
+    { "binding": "RELEASES", "bucket_name": "qnfo-releases" },
+    { "binding": "SKILLS", "bucket_name": "qnfo-skills" },
+    { "binding": "AUDIT", "bucket_name": "qnfo-audit" },
+    { "binding": "PROJECTS", "bucket_name": "qnfo-projects" },
+    { "binding": "BACKUPS", "bucket_name": "qnfo-backups" },
+    { "binding": "ASSETS", "bucket_name": "qnfo-assets" }
+  ]
 }

@@ -1,138 +1,83 @@
-﻿// r2-gateway Worker v1.0
-// Centralized R2 write gateway for QNFO 6-bucket fleet
+// r2-gateway Worker v2.0 — R2 Data Catalog
 // Deployed at: r2-gateway.q08.workers.dev
-// Canonical doc: R2-MULTI-BUCKET-ARCHITECTURE.md
+// R2 Service Bindings: RELEASES(qnfo-releases), SKILLS(qnfo-skills), AUDIT(qnfo-audit),
+//   PROJECTS(qnfo-projects), BACKUPS(qnfo-backups), ASSETS(qnfo-assets)
 
-const ACCOUNT_ID = 'edb167b78c9fb901ea5bca3ce58ccc4b';
-const API_TOKEN = ''; // Set in wrangler secret: npx wrangler secret put API_TOKEN
+const BUCKETS = ['qnfo-releases','qnfo-skills','qnfo-audit','qnfo-projects','qnfo-backups','qnfo-assets'];
+const BUCKET_DESCRIPTIONS = {'qnfo-releases':'Publications (papers, releases)','qnfo-skills':'DeepChat skills + tools','qnfo-audit':'Audit trails, discovery, kaizen','qnfo-projects':'WBS project files','qnfo-backups':'D1 snapshots, disaster recovery','qnfo-assets':'Static web assets (CSS, JS, fonts)'};
+const BUCKET_ROUTES = {'papers/':'qnfo-releases','releases/':'qnfo-releases','prompts/skills/':'qnfo-skills','tools/':'qnfo-skills','audit/':'qnfo-audit','kaizen/':'qnfo-audit','projects/':'qnfo-projects','backups/':'qnfo-backups','css/':'qnfo-assets','js/':'qnfo-assets','fonts/':'qnfo-assets','images/':'qnfo-assets','design-system/':'qnfo-assets','assets/':'qnfo-assets','discovery/':'qnfo-audit'};
+const BANNED_PREFIXES = ['qnfo/','qnfo-','qwav/','deepchat/'];
 
-const BUCKET_ROUTES = {
-  'papers/': 'qnfo-releases',
-  'releases/': 'qnfo-releases',
-  'prompts/skills/': 'qnfo-skills',
-  'tools/': 'qnfo-skills',
-  'audit/': 'qnfo-audit',
-  'kaizen/': 'qnfo-audit',
-  'projects/': 'qnfo-projects',
-  'backups/': 'qnfo-backups',
-  'css/': 'qnfo-assets',
-  'js/': 'qnfo-assets',
-  'fonts/': 'qnfo-assets',
-  'images/': 'qnfo-assets',
-  'design-system/': 'qnfo-assets',
-  'assets/': 'qnfo-assets',
-  'discovery/': 'qnfo-audit',
-};
+function validateR2Key(key){if(!key||typeof key!=='string'||key.trim().length===0)return{valid:false,error:'Key must be a non-empty string'};if(key.includes('//'))return{valid:false,error:'Key contains double slash'};for(const banned of BANNED_PREFIXES)if(key.startsWith(banned))return{valid:false,error:'Banned prefix: '+banned};return{valid:true}}
+function resolveBucket(key){for(const[prefix,bucket]of Object.entries(BUCKET_ROUTES))if(key.startsWith(prefix))return bucket;return'qnfo-audit'}
+function cors(){return{'Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'GET,POST,OPTIONS','Access-Control-Allow-Headers':'Content-Type,Authorization,X-Session-Id'}}
+function j(data,status){return new Response(JSON.stringify(data,null,2),{status:status||200,headers:{'Content-Type':'application/json',...cors()}})}
 
-const BANNED_PREFIXES = ['qnfo/', 'qnfo-', 'qwav/', 'deepchat/'];
+function getBucketBinding(bucketName,env){const map={'qnfo-releases':env.RELEASES,'qnfo-skills':env.SKILLS,'qnfo-audit':env.AUDIT,'qnfo-projects':env.PROJECTS,'qnfo-backups':env.BACKUPS,'qnfo-assets':env.ASSETS};return map[bucketName]}
 
-function validateR2Key(key) {
-  if (!key || typeof key !== 'string' || key.trim().length === 0)
-    return { valid: false, error: 'Key must be a non-empty string' };
-  if (key.includes('//'))
-    return { valid: false, error: 'Key contains double slash' };
-  for (const banned of BANNED_PREFIXES)
-    if (key.startsWith(banned))
-      return { valid: false, error: 'Banned prefix: ' + banned };
-  return { valid: true };
+async function listBucket(env,bucket,prefix,limit){const b=getBucketBinding(bucket,env);if(!b)return{objects:[],truncated:false};try{const opts={limit:Math.min(limit||100,1000)};if(prefix)opts.prefix=prefix;const r=await b.list(opts);return{objects:(r.objects||[]).map(o=>({key:o.key,size:o.size,uploaded:o.uploaded,httpMetadata:o.httpMetadata||{},customMetadata:o.customMetadata||{}})),truncated:r.truncated||false,cursor:r.cursor||null}}catch(e){return{objects:[],error:e.message,truncated:false}}}
+async function getObject(env,bucket,key){const b=getBucketBinding(bucket,env);if(!b)return null;try{return await b.get(key)}catch(e){return null}}
+async function putObject(env,bucket,key,body,metadata){const b=getBucketBinding(bucket,env);if(!b)return null;try{const opts={};if(metadata)opts.httpMetadata=metadata;await b.put(key,body,opts);return{success:true}}catch(e){return{success:false,error:e.message}}}
+
+async function lock(sid,rt,rid,ttl){try{const r=await fetch('https://infra-lock-manager.q08.workers.dev/api/lock',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({resourceType:rt,resourceId:rid,sessionId:sid,ttlSeconds:ttl||60})});return await r.json()}catch(e){return{success:false,message:e.message}}}
+async function unlock(sid,rt,rid){try{await fetch('https://infra-lock-manager.q08.workers.dev/api/unlock',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({resourceType:rt,resourceId:rid,sessionId:sid})})}catch(_){}}
+
+function catalogUI() {
+  var html = '<!DOCTYPE html><html lang=en><head><meta charset=UTF-8><meta name=viewport content="width=device-width,initial-scale=1.0"><title>R2 Data Catalog</title>';
+  html += '<style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:system-ui,sans-serif;background:#0d1117;color:#c9d1d9;padding:20px}h1{color:#58a6ff;margin-bottom:8px}.subtitle{color:#8b949e;margin-bottom:20px}.buckets{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px;margin-bottom:20px}.bucket{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:14px}.bucket h3{color:#58a6ff;font-size:14px}.bucket .desc{color:#8b949e;font-size:11px}.bucket .badge{display:inline-block;padding:2px 8px;border-radius:12px;font-size:11px;margin-top:8px}.badge-ok{background:#23863622;color:#7ee787;border:1px solid #238636}.badge-err{background:#da363322;color:#f85149;border:1px solid #da3633}.toolbar{display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap}.toolbar select,.toolbar input,.toolbar button{padding:6px 12px;background:#21262d;border:1px solid #30363d;color:#c9d1d9;border-radius:6px}.tb-btn{background:#238636!important;border-color:#2ea043!important;cursor:pointer}.tb-btn:hover{background:#2ea043!important}.files{background:#161b22;border:1px solid #30363d;border-radius:8px;overflow:hidden}.file{display:flex;justify-content:space-between;padding:8px 14px;border-bottom:1px solid #21262d;font-size:13px}.file:hover{background:#1c2128}.file-key{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.file-size{color:#8b949e;min-width:80px;text-align:right}.file-actions{margin-left:8px}.file-actions a{color:#58a6ff;text-decoration:none;font-size:11px;margin-left:6px}.file-actions a:hover{color:#79c0ff}#status{color:#8b949e;font-size:11px;margin-top:8px}.endpoints{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:14px;margin-top:20px}.endpoints h3{color:#58a6ff;margin-bottom:10px}.ep{display:flex;margin:4px 0;font-size:12px}.ep-method{color:#7ee787;min-width:50px;font-weight:600}.ep-path{color:#c9d1d9;min-width:200px}.ep-desc{color:#8b949e}</style></head><body>';
+  html += '<h1>QNFO R2 Data Catalog</h1><p class=subtitle>6-bucket fleet via r2-gateway v2.0</p>';
+  html += '<div class=buckets id=bucketGrid>Loading buckets...</div>';
+  html += '<div class=toolbar><select id=bucketSelect><option value="">All</option></select>';
+  html += '<input id=prefixFilter placeholder="Filter by prefix..." style=width:200px>';
+  html += '<button class=tb-btn onclick=loadCatalog()>Search</button>';
+  html += '<button class=tb-btn onclick=loadBuckets()>Refresh</button>';
+  html += '<button class=tb-btn onclick="window.open(\'/export?bucket=\'+document.getElementById(\'bucketSelect\').value+\'&format=csv\')">Export CSV</button></div>';
+  html += '<div class=files id=fileList>Select a bucket to browse</div><div id=status></div>';
+  html += '<div class=endpoints><h3>API Endpoints</h3>';
+  html += '<div class=ep><span class=ep-method>GET</span><span class=ep-path>/health</span><span class=ep-desc>Health check</span></div>';
+  html += '<div class=ep><span class=ep-method>GET</span><span class=ep-path>/buckets</span><span class=ep-desc>Bucket inventory</span></div>';
+  html += '<div class=ep><span class=ep-method>GET</span><span class=ep-path>/catalog</span><span class=ep-desc>Browse objects</span></div>';
+  html += '<div class=ep><span class=ep-method>GET</span><span class=ep-path>/catalog/list</span><span class=ep-desc>Paginated list</span></div>';
+  html += '<div class=ep><span class=ep-method>GET</span><span class=ep-path>/get</span><span class=ep-desc>Download object</span></div>';
+  html += '<div class=ep><span class=ep-method>GET</span><span class=ep-path>/search</span><span class=ep-desc>Search across buckets</span></div>';
+  html += '<div class=ep><span class=ep-method>POST</span><span class=ep-path>/write</span><span class=ep-desc>Validated upload</span></div>';
+  html += '</div>';
+  html += '<script>var API="";function loadBuckets(){var s=document.getElementById("status");s.textContent="Loading...";fetch(API+"/buckets").then(function(r){return r.json()}).then(function(d){var g=document.getElementById("bucketGrid");var sel=document.getElementById("bucketSelect");sel.innerHTML=\'<option value="">All</option>\';var html="";var names=Object.keys(d.buckets).sort();for(var i=0;i<names.length;i++){var n=names[i];var info=d.buckets[n];html+=\'<div class=bucket><h3>\'+n+\'</h3><div class=desc>\'+(info.description||"")+\'</div><span class="badge \'+(info.objects?"badge-ok":"badge-err")+\'">\'+(info.objects||info.error||"?")+\'</span></div>\';sel.innerHTML+=\'<option value="\'+n+\'">\'+n+\'</option>\'}g.innerHTML=html;s.textContent="Buckets loaded"}).catch(function(e){s.textContent="Error: "+e.message})}';
+  html += 'function loadCatalog(){var s=document.getElementById("status");var bucket=document.getElementById("bucketSelect").value;var prefix=document.getElementById("prefixFilter").value;s.textContent="Loading...";var url=bucket?API+"/catalog/list?bucket="+encodeURIComponent(bucket)+"&prefix="+encodeURIComponent(prefix):API+"/catalog?prefix="+encodeURIComponent(prefix);fetch(url).then(function(r){return r.json()}).then(function(d){var fl=document.getElementById("fileList");if(d.results&&!d.objects){var html="";var entries=Object.entries(d.results);for(var i=0;i<entries.length;i++){var bn=entries[i][0];var info=entries[i][1];if(info.count===0)continue;html+=\'<div style="padding:8px 14px;background:#23863611;font-weight:600;font-size:13px">\'+bn+\' (\'+info.count+\' objects)</div>\';for(var j=0;j<info.objects.length;j++){var o=info.objects[j];html+=\'<div class=file><span class=file-key title="\'+o.key+\'">\'+o.key+\'</span><span class=file-size>\'+fmtSize(o.size)+\'</span><span class=file-actions><a href="\'+API+\'/get?bucket=\'+encodeURIComponent(bn)+\'&key=\'+encodeURIComponent(o.key)+\'" target=_blank>view</a><a href="\'+API+\'/info?bucket=\'+encodeURIComponent(bn)+\'&key=\'+encodeURIComponent(o.key)+\'" target=_blank>info</a></span></div>\'}}fl.innerHTML=html||"No objects found"}else if(d.objects){var html="";for(var k=0;k<d.objects.length;k++){var o=d.objects[k];html+=\'<div class=file><span class=file-key title="\'+o.key+\'">\'+o.key+\'</span><span class=file-size>\'+fmtSize(o.size)+\'</span><span class=file-actions><a href="\'+API+\'/get?bucket=\'+encodeURIComponent(d.bucket)+\'&key=\'+encodeURIComponent(o.key)+\'" target=_blank>view</a></span></div>\'}fl.innerHTML=html}s.textContent="Loaded "+(d.total||d.count||0)+" objects"}).catch(function(e){s.textContent="Error: "+e.message})}';
+  html += 'function fmtSize(b){if(!b||b<1024)return(b||0)+" B";var u=["KB","MB","GB"];var s=b;var i=-1;do{s/=1024;i++}while(s>=1024&&i<2);return s.toFixed(1)+" "+u[i]}';
+  html += 'loadBuckets();</script></body></html>';
+  return html;
 }
 
-function resolveBucket(key) {
-  for (const [prefix, bucket] of Object.entries(BUCKET_ROUTES))
-    if (key.startsWith(prefix)) return bucket;
-  return 'qnfo-audit';
-}
+export default{async fetch(request,env){const u=new URL(request.url),p=u.pathname;if(request.method==='OPTIONS')return new Response(null,{status:204,headers:cors()});
 
-function cors() {
-  return {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Session-Id'
-  };
-}
+if(p==='/health')return j({status:'ok',worker:'r2-gateway',version:'2.0.0',buckets:BUCKETS.length,features:['catalog','buckets','write','get','search','info','export']});
 
-function j(data, status) {
-  return new Response(JSON.stringify(data, null, 2), {
-    status: status || 200,
-    headers: { 'Content-Type': 'application/json', ...cors() }
-  });
-}
+if(p==='/buckets'){const results={};for(const bucket of BUCKETS){const b=getBucketBinding(bucket,env);if(!b){results[bucket]={error:'No binding'};continue}try{const r=await b.list({limit:1});results[bucket]={description:BUCKET_DESCRIPTIONS[bucket],objects:(r.objects||[]).length>0?'populated':'empty',truncated:r.truncated}}catch(e){results[bucket]={error:e.message}}}return j({total:BUCKETS.length,buckets:results})}
 
-async function lock(sid, rt, rid, ttl) {
-  try {
-    const r = await fetch('https://infra-lock-manager.q08.workers.dev/api/lock', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ resourceType: rt, resourceId: rid, sessionId: sid, ttlSeconds: ttl || 60 })
-    });
-    return await r.json();
-  } catch(e) { return { success: false, message: e.message }; }
-}
+if(p==='/catalog'){const bucket=u.searchParams.get('bucket');const prefix=u.searchParams.get('prefix')||'';const limit=parseInt(u.searchParams.get('limit')||'50');if(bucket&&!BUCKETS.includes(bucket))return j({error:'Unknown bucket: '+bucket+'. Available: '+BUCKETS.join(',')},400);const targets=bucket?[bucket]:BUCKETS;const results={};let total=0;for(const b of targets){const r=await listBucket(env,b,prefix,limit);results[b]={count:r.objects.length,truncated:r.truncated,cursor:r.cursor,objects:r.objects.slice(0,20)};total+=r.objects.length}return j({total,bucket:bucket||'all',prefix:prefix||'(root)',results})}
 
-async function unlock(sid, rt, rid) {
-  try { await fetch('https://infra-lock-manager.q08.workers.dev/api/unlock', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ resourceType: rt, resourceId: rid, sessionId: sid })
-  }); } catch(_) {}
-}
+if(p==='/catalog/list'){const bucket=u.searchParams.get('bucket')||BUCKETS[0];const prefix=u.searchParams.get('prefix')||'';const limit=parseInt(u.searchParams.get('limit')||'100');if(!BUCKETS.includes(bucket))return j({error:'Unknown bucket'},400);const r=await listBucket(env,bucket,prefix,limit);return j({bucket,prefix,count:r.objects.length,truncated:r.truncated,objects:r.objects})}
 
-async function r2put(bucket, key, body, ct) {
-  const u = 'https://api.cloudflare.com/client/v4/accounts/' + ACCOUNT_ID + '/r2/buckets/' + bucket + '/objects/' + encodeURIComponent(key);
-  const r = await fetch(u, {
-    method: 'PUT',
-    headers: { 'Authorization': 'Bearer ' + API_TOKEN, 'Content-Type': ct || 'application/octet-stream' },
-    body
-  });
-  return await r.json();
-}
+if(p==='/get'){const bucket=u.searchParams.get('bucket');const key=u.searchParams.get('key');if(!bucket||!key)return j({error:'Missing bucket or key'},400);const obj=await getObject(env,bucket,key);if(!obj)return j({error:'Object not found: '+bucket+'/'+key},404);const ct=obj.httpMetadata?.contentType||'application/octet-stream';if(ct.startsWith('text/')||ct==='application/json'||ct==='application/javascript'){const text=await obj.text();return new Response(text,{headers:{'Content-Type':ct,'Access-Control-Allow-Origin':'*'}})}return new Response(obj.body,{headers:{'Content-Type':ct,'Access-Control-Allow-Origin':'*'}})}
 
-async function r2get(bucket, key) {
-  const u = 'https://api.cloudflare.com/client/v4/accounts/' + ACCOUNT_ID + '/r2/buckets/' + bucket + '/objects/' + encodeURIComponent(key);
-  const r = await fetch(u, { headers: { 'Authorization': 'Bearer ' + API_TOKEN } });
-  return r.ok ? await r.arrayBuffer() : null;
-}
+if(p==='/info'){const bucket=u.searchParams.get('bucket');const key=u.searchParams.get('key');if(!bucket||!key)return j({error:'Missing bucket or key'},400);const obj=await getObject(env,bucket,key);if(!obj)return j({error:'Not found'},404);return j({bucket,key,size:obj.size,httpMetadata:obj.httpMetadata||{},customMetadata:obj.customMetadata||{},uploaded:obj.uploaded})}
 
-export default {
-  async fetch(request, env) {
-    const u = new URL(request.url);
-    const p = u.pathname;
-    if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors() });
+if(p==='/search'){const q=u.searchParams.get('q')||'';if(!q)return j({error:'Missing ?q='},400);const results=[];for(const bucket of BUCKETS){const b=getBucketBinding(bucket,env);if(!b)continue;try{const r=await b.list({limit:20,prefix:q});for(const o of(r.objects||[]).slice(0,10))results.push({bucket,key:o.key,size:o.size,uploaded:o.uploaded});if(results.length>=30)break}catch(e){}}return j({query:q,hits:results.length,results:results.slice(0,30)})}
 
-    if (p === '/health') return j({ status: 'ok', worker: 'r2-gateway', version: '1.0.0', buckets: [...new Set(Object.values(BUCKET_ROUTES))].length, routes: Object.keys(BUCKET_ROUTES).length });
+if(p==='/export'){const bucket=u.searchParams.get('bucket')||BUCKETS[0];const fmt=u.searchParams.get('format')||'json';const r=await listBucket(env,bucket,'',1000);if(fmt==='csv'){const lines=['bucket,key,size,uploaded'];for(const o of r.objects)lines.push([bucket,o.key,o.size,o.uploaded].join(','));return new Response(lines.join('\n'),{headers:{'Content-Type':'text/csv','Access-Control-Allow-Origin':'*'}})}return j({bucket,count:r.objects.length,exported_at:new Date().toISOString(),objects:r.objects})}
 
-    if (p === '/routes') return j({ buckets: [...new Set(Object.values(BUCKET_ROUTES))].sort(), routes: BUCKET_ROUTES, banned: BANNED_PREFIXES });
+if(p==='/routes')return j({buckets:[...new Set(Object.values(BUCKET_ROUTES))].sort(),routes:BUCKET_ROUTES,banned:BANNED_PREFIXES});
 
-    if (p === '/resolve' && request.method === 'POST') {
-      const { key } = await request.json().catch(() => ({}));
-      const v = validateR2Key(key);
-      if (!v.valid) return j(v, 400);
-      return j({ key, bucket: resolveBucket(key), valid: true });
-    }
+if(p==='/resolve'&&request.method==='POST'){const{key}=await request.json().catch(()=>({}));const v=validateR2Key(key);if(!v.valid)return j(v,400);return j({key,bucket:resolveBucket(key),valid:true})}
 
-    if (p === '/write' && request.method === 'POST') {
-      const sid = request.headers.get('X-Session-Id') || 'r2-gateway';
-      const { key, content, contentType } = await request.json().catch(() => ({}));
-      if (!key) return j({ error: 'Missing: key' }, 400);
+if(p==='/write'&&request.method==='POST'){const sid=request.headers.get('X-Session-Id')||'r2-gateway';const body=await request.json().catch(()=>({}));const{key,content,contentType,bucket:reqBucket}=body;if(!key)return j({error:'Missing: key'},400);const v=validateR2Key(key);if(!v.valid)return j(v,400);const bucket=reqBucket||resolveBucket(key);if(!BUCKETS.includes(bucket))return j({error:'Unknown bucket: '+bucket},400);const rid=bucket+'/'+key;const lk=await lock(sid,'r2_object',rid,60);if(!lk.success)return j({status:'blocked',reason:lk.message,key,bucket},409);try{const buf=typeof content==='string'?new TextEncoder().encode(content):new Uint8Array(content||[]);const pr=await putObject(env,bucket,key,buf,contentType?{contentType}:undefined);if(!pr.success)return j({status:'error',phase:'write',error:pr.error},500);const vbuf=await getObject(env,bucket,key);const verified=vbuf!==null&&vbuf.size===buf.length;return j({status:'written',key,bucket,sizeBytes:buf.length,verified,sessionId:sid,timestamp:new Date().toISOString()})}finally{await unlock(sid,'r2_object',rid)}}
 
-      const v = validateR2Key(key);
-      if (!v.valid) return j(v, 400);
+if(p==='/put'&&request.method==='POST'){const bucket=u.searchParams.get('bucket')||'qnfo-audit';const key=u.searchParams.get('key');if(!key)return j({error:'Missing ?key='},400);const result=await putObject(env,bucket,key,await request.text(),{contentType:request.headers.get('Content-Type')||'application/octet-stream'});if(!result.success)return j(result,500);return j({status:'uploaded',bucket,key})}
 
-      const bucket = resolveBucket(key);
-      const rid = bucket + '/' + key;
-      const lk = await lock(sid, 'r2_object', rid, 60);
-      if (!lk.success) return j({ status: 'blocked', reason: lk.message, key, bucket }, 409);
+if(p==='/delete'&&request.method==='POST'){const body=await request.json().catch(()=>({}));const{bucket,key}=body;if(!bucket||!key)return j({error:'Missing bucket or key'},400);const b=getBucketBinding(bucket,env);if(!b)return j({error:'Unknown bucket'},400);try{await b.delete(key);return j({status:'deleted',bucket,key})}catch(e){return j({error:e.message},500)}}
 
-      try {
-        const buf = typeof content === 'string' ? new TextEncoder().encode(content) : new Uint8Array(content || []);
-        const pr = await r2put(bucket, key, buf, contentType);
-        if (!pr.success) return j({ status: 'error', phase: 'write', error: pr.errors }, 500);
+if(p==='/'||p==='/ui')return new Response(catalogUI(),{headers:{'Content-Type':'text/html;charset=utf-8','Access-Control-Allow-Origin':'*'}});
 
-        const vbuf = await r2get(bucket, key);
-        const verified = vbuf !== null && vbuf.byteLength === buf.byteLength;
-
-        return j({ status: 'written', key, bucket, sizeBytes: buf.byteLength, verified, sessionId: sid, timestamp: new Date().toISOString() });
-      } finally { await unlock(sid, 'r2_object', rid); }
-    }
-
-    return j({ worker: 'r2-gateway', endpoints: ['/health', '/routes', '/resolve', '/write'] });
-  }
-};
+return j({worker:'r2-gateway',version:'2.0.0',endpoints:{'/':'Catalog UI','/health':'Health check','/buckets':'List all 6 buckets','/catalog?bucket=qnfo-skills&prefix=prompts/':'Browse objects','/catalog/list?bucket=qnfo-skills&prefix=prompts/skills/':'Paginated list','/get?bucket=qnfo-skills&key=prompts/skills/infrastructure-audit/SKILL.md':'Read object','/info?bucket=qnfo-audit&key=discovery/index.json':'Object metadata','/search?q=SKILL.md':'Search across buckets','/export?bucket=qnfo-skills&format=csv':'Export catalog','/write':'Validated write (POST JSON)','/put?bucket=qnfo-audit&key=test.txt':'Simple upload (POST body)','/delete':'Delete object (POST JSON)','/routes':'Bucket routing table','/resolve':'Key->bucket resolution'}})
+}};

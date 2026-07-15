@@ -375,31 +375,32 @@ async function tool_recall_facts(args, env) {
 }
 
 // === TOOL: query_graph ===
-async function tool_query_graph(args) {
+async function tool_query_graph(args, env) {
   const { endpoint, params = {} } = args;
-  let url = `${GRAPH_API}`;
+  const base = "https://graph-api.q08.workers.dev";
+  let url;
 
   switch (endpoint) {
     case "stats":
-      url += "/stats";
+      url = `${base}/stats`;
       break;
     case "nodes":
-      url += `/nodes?label=${params.label || "Project"}&search=${params.search || ""}`;
+      url = `${base}/nodes?label=${params.label || "Project"}&search=${params.search || ""}`;
       break;
     case "neighbors":
-      url += `/neighbors/${encodeURIComponent(params.id || "")}`;
+      url = `${base}/neighbors/${encodeURIComponent(params.id || "")}`;
       break;
     case "impact":
-      url += `/impact/${encodeURIComponent(params.id || "")}`;
+      url = `${base}/impact/${encodeURIComponent(params.id || "")}`;
       break;
     case "query":
-      // POST /query with SQL
       try {
-        const resp = await fetch(`${GRAPH_API}/query`, {
+        const req = new Request(`${base}/query`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ query: params.query, params: params.params || [] })
         });
+        const resp = await env.GRAPH.fetch(req);
         const data = await resp.json();
         return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
       } catch (e) {
@@ -409,8 +410,10 @@ async function tool_query_graph(args) {
       return { content: [{ type: "text", text: `Unknown endpoint: ${endpoint}` }], isError: true };
   }
 
+  // Service binding — no subrequest CPU timeout
   try {
-    const resp = await fetch(url, { headers: { "User-Agent": "qnfo-memory-mcp/1.0" } });
+    const req = new Request(url, { headers: { "User-Agent": "qnfo-memory-mcp/1.0" } });
+    const resp = await env.GRAPH.fetch(req);
     const data = await resp.json();
     return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
   } catch (e) {
@@ -425,41 +428,20 @@ async function tool_get_paper_context(args, env) {
     return { content: [{ type: "text", text: "Missing required: slug" }], isError: true };
   }
   const limit_chars = Math.max(100, args.limit_chars || 5000);
-  const D1_LIVING_PAPER = "70a58cb3-b2cd-498d-877f-ecca86859a22";
 
   try {
-    const d1Url = `https://api.cloudflare.com/client/v4/accounts/${ACCOUNT_ID}/d1/database/${D1_LIVING_PAPER}/query`;
-    
-    // Try exact match first
-    let resp = await fetch(d1Url, {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${env.CF_API_TOKEN}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        sql: "SELECT slug, title, body_md, created_at FROM papers WHERE slug = ? LIMIT 1",
-        params: [slug]
-      })
-    });
-    let data = await resp.json();
-    let paper = data.result?.[0]?.results?.[0];
+    // Try exact match via direct D1 binding
+    let result = await env.PAPER_DB.prepare(
+      "SELECT slug, title, body_md, created_at FROM papers WHERE slug = ? LIMIT 1"
+    ).bind(slug).all();
+    let paper = result.results?.[0];
 
     if (!paper) {
       // Try partial match
-      resp = await fetch(d1Url, {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${env.CF_API_TOKEN}`,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          sql: "SELECT slug, title, body_md, created_at FROM papers WHERE slug LIKE ? LIMIT 1",
-          params: [`%${slug}%`]
-        })
-      });
-      data = await resp.json();
-      paper = data.result?.[0]?.results?.[0];
+      result = await env.PAPER_DB.prepare(
+        "SELECT slug, title, body_md, created_at FROM papers WHERE slug LIKE ? LIMIT 1"
+      ).bind(`%${slug}%`).all();
+      paper = result.results?.[0];
     }
 
     if (!paper) {
@@ -491,7 +473,7 @@ async function callTool(name, args, env) {
     case "search_memories": return await tool_search_memories(args, env);
     case "remember_fact": return await tool_remember_fact(args, env);
     case "recall_facts": return await tool_recall_facts(args, env);
-    case "query_graph": return await tool_query_graph(args);
+    case "query_graph": return await tool_query_graph(args, env);
     case "get_paper_context": return await tool_get_paper_context(args, env);
     default:
       return { content: [{ type: "text", text: `Unknown tool: ${name}` }], isError: true };
@@ -503,7 +485,41 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     
-    // CORS preflight
+    // === Paper Indexing Endpoint (POST /admin/index) ===
+    if (url.pathname === "/admin/index" && request.method === "POST") {
+      const body = await request.json().catch(() => ({}));
+      const batch = Math.min(body.batch || 5, 10);
+      const offset = body.offset || 0;
+
+      try {
+        // Fetch batch of papers with body_md
+        const result = await env.PAPER_DB.prepare(
+          "SELECT slug, title, body_md FROM papers WHERE body_md IS NOT NULL AND LENGTH(body_md) > 100 ORDER BY slug LIMIT ? OFFSET ?"
+        ).bind(batch, offset).all();
+
+        let indexed = 0;
+        for (const paper of result.results) {
+          if (!paper.body_md) continue;
+          const chunk = paper.body_md.slice(0, 500);
+          const embedding = await getEmbedding(chunk, env);
+          if (!embedding) continue;
+          try {
+            await env.PAPER_VZ.upsert([{
+              id: `paper:${paper.slug}:0`,
+              values: embedding,
+              metadata: { title: paper.title, slug: paper.slug, source: paper.slug.split("-")[0] || "unknown", chunk: 0 }
+            }]);
+            indexed++;
+          } catch {}
+        }
+
+        return json({ status: "ok", indexed, offset, batch, note: "Call repeatedly with increasing offset to index all papers" });
+      } catch (e) {
+        return json({ status: "error", message: e.message }, 500);
+      }
+    }
+
+    // === CORS preflight ===
     if (request.method === "OPTIONS") {
       return new Response(null, { status: 204, headers: corsHeaders() });
     }
